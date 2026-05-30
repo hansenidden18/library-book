@@ -1,0 +1,25 @@
+services:
+  library-book:
+    build: .
+    # Or use a prebuilt image once you publish one:
+    # image: ghcr.io/hansenidden18/library-book:latest
+    container_name: library-book
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      # Single data volume: SQLite db, library files, covers, and the
+      # import/ watch folder all live here. Drop files into ./data/import
+      # (or ./data/import/papers) to auto-import them.
+      - ./data:/data
+    environment:
+      TZ: "UTC"
+      USER_ID: "1000"
+      GROUP_ID: "1000"
+      WATCH_ENABLED: "true"
+      METADATA_FETCH_ENABLED: "true"
+      # Recommended: set your email for the Crossref "polite pool".
+      CROSSREF_MAILTO: ""
+      # Optional: a Google Books API key raises rate limits.
+      GOOGLE_BOOKS_API_KEY: ""
+      LOG_LEVEL: "info"

@@ -1,0 +1,21 @@
+# data volume
+/data/
+backend/data/
+backend/data_test/
+
+# python
+backend/.venv/
+__pycache__/
+*.pyc
+.env
+
+# node
+frontend/node_modules/
+frontend/dist/
+node_modules/
+
+# build artifacts served by backend
+backend/static/
+
+# os
+.DS_Store

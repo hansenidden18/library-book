@@ -1,0 +1,14 @@
+**/node_modules
+**/.venv
+**/__pycache__
+**/*.pyc
+frontend/dist
+backend/static
+backend/devdata
+backend/data
+backend/data_test
+data
+.git
+.playwright-mcp
+*.png
+tasks
