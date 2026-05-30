@@ -105,7 +105,8 @@ class WatchManager:
         return results
 
     def _infer_type(self, path: Path) -> str:
-        return "paper" if "papers" in path.parts else "book"
+        # A papers/ subfolder forces paper; otherwise let ingest auto-detect.
+        return "paper" if "papers" in path.parts else "auto"
 
     def _ingest_one(self, path: Path) -> dict:
         if not path.exists():

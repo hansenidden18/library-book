@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 // @ts-expect-error - vite ?url import for the worker
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
@@ -13,7 +13,9 @@ import { useReadingSession } from "../../hooks/useReadingSession";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
-const SCALE = 1.4;
+const DEFAULT_SCALE = 1.4;
+const MIN_SCALE = 0.5;
+const MAX_SCALE = 5;
 const HIGHLIGHT_COLORS = ["#fde047", "#86efac", "#93c5fd", "#fca5a5"];
 
 interface Props {
@@ -24,23 +26,31 @@ interface Props {
 export default function PdfReader({ doc, initialPage }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const pdfRef = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
+  const currentPageRef = useRef(initialPage || 1);
+  const annotationsRef = useRef<Annotation[]>([]);
+  const drawRef = useRef<() => void>(() => {});
   const [numPages, setNumPages] = useState(0);
   const [currentPage, setCurrentPage] = useState(initialPage || 1);
+  const [scale, setScale] = useState(DEFAULT_SCALE);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [color, setColor] = useState(HIGHLIGHT_COLORS[0]);
   const restored = useRef(false);
   const { reportProgress } = useReadingSession(doc.id);
 
-  // Load + render the PDF.
+  // Load the PDF once, then (re)render all pages whenever the zoom changes.
+  // Rendering uses devicePixelRatio so pages stay crisp on Retina displays.
   useEffect(() => {
-    let pdf: pdfjsLib.PDFDocumentProxy | null = null;
     let cancelled = false;
 
     (async () => {
-      const task = pdfjsLib.getDocument(fileUrl(doc.id));
-      pdf = await task.promise;
-      if (cancelled) return;
-      setNumPages(pdf.numPages);
+      if (!pdfRef.current) {
+        pdfRef.current = await pdfjsLib.getDocument(fileUrl(doc.id)).promise;
+        if (cancelled) return;
+        setNumPages(pdfRef.current.numPages);
+      }
+      const pdf = pdfRef.current;
+      const outputScale = window.devicePixelRatio || 1;
       const container = containerRef.current!;
       container.innerHTML = "";
       pageRefs.current = [];
@@ -48,19 +58,20 @@ export default function PdfReader({ doc, initialPage }: Props) {
       for (let n = 1; n <= pdf.numPages; n++) {
         const page = await pdf.getPage(n);
         if (cancelled) return;
-        const viewport = page.getViewport({ scale: SCALE });
+        const viewport = page.getViewport({ scale });
 
         const wrap = document.createElement("div");
         wrap.className = "relative mx-auto my-4 shadow-lg";
-        wrap.style.width = `${viewport.width}px`;
-        wrap.style.height = `${viewport.height}px`;
+        wrap.style.width = `${Math.floor(viewport.width)}px`;
+        wrap.style.height = `${Math.floor(viewport.height)}px`;
         wrap.dataset.page = String(n);
 
         const canvas = document.createElement("canvas");
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        canvas.style.width = `${viewport.width}px`;
-        canvas.style.height = `${viewport.height}px`;
+        // Backing store at full device resolution; CSS size at logical size.
+        canvas.width = Math.floor(viewport.width * outputScale);
+        canvas.height = Math.floor(viewport.height * outputScale);
+        canvas.style.width = `${Math.floor(viewport.width)}px`;
+        canvas.style.height = `${Math.floor(viewport.height)}px`;
         wrap.appendChild(canvas);
 
         const textLayerDiv = document.createElement("div");
@@ -70,14 +81,24 @@ export default function PdfReader({ doc, initialPage }: Props) {
 
         const annLayer = document.createElement("div");
         annLayer.className = "annLayer";
-        annLayer.style.cssText = "position:absolute;inset:0;pointer-events:none;";
+        // Above the text layer (z-index 2) so highlight rects are clickable;
+        // the layer itself is pass-through, only the rects capture clicks.
+        annLayer.style.cssText = "position:absolute;inset:0;pointer-events:none;z-index:3;";
         wrap.appendChild(annLayer);
 
         container.appendChild(wrap);
         pageRefs.current[n] = wrap;
 
         const ctx = canvas.getContext("2d")!;
-        await page.render({ canvasContext: ctx, viewport }).promise;
+        const transform = outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : undefined;
+        await page.render({
+          canvasContext: ctx,
+          viewport,
+          transform,
+          // Render embedded annotations (e.g. highlights from Preview/Adobe)
+          // that carry an appearance stream onto the canvas.
+          annotationMode: (pdfjsLib as any).AnnotationMode?.ENABLE ?? 1,
+        }).promise;
 
         // Text layer for selection.
         try {
@@ -92,17 +113,27 @@ export default function PdfReader({ doc, initialPage }: Props) {
         }
       }
 
-      if (!restored.current && initialPage > 1) {
-        pageRefs.current[initialPage]?.scrollIntoView();
-        restored.current = true;
-      }
+      // Keep the reader on the same page across the initial restore and zoom.
+      const target = restored.current ? currentPageRef.current : initialPage || 1;
+      if (target > 1) pageRefs.current[target]?.scrollIntoView();
+      restored.current = true;
+
+      // Pages exist now -> draw any saved highlight overlays.
+      drawRef.current();
     })();
 
     return () => {
       cancelled = true;
-      pdf?.destroy();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc.id, scale]);
+
+  // Destroy the PDF when leaving the document.
+  useEffect(() => {
+    return () => {
+      pdfRef.current?.destroy();
+      pdfRef.current = null;
+    };
   }, [doc.id]);
 
   // Load annotations.
@@ -122,6 +153,7 @@ export default function PdfReader({ doc, initialPage }: Props) {
         if (wrap && wrap.offsetTop <= mid) page = n;
       }
       setCurrentPage(page);
+      currentPageRef.current = page;
       const percent = numPages > 0 ? Math.min(100, (page / numPages) * 100) : 0;
       reportProgress({ pdf_page: page, percent });
     };
@@ -129,17 +161,60 @@ export default function PdfReader({ doc, initialPage }: Props) {
     return () => container.removeEventListener("scroll", onScroll);
   }, [numPages, reportProgress]);
 
-  // Render highlight overlays whenever annotations change.
+  // Zoom helpers (buttons, keyboard, and ctrl/cmd + wheel).
+  const zoomBy = (delta: number) =>
+    setScale((s) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, +(s + delta).toFixed(2))));
+
+  const fitWidth = async () => {
+    const pdf = pdfRef.current;
+    const container = containerRef.current;
+    if (!pdf || !container) return;
+    const page = await pdf.getPage(currentPageRef.current || 1);
+    const unit = page.getViewport({ scale: 1 });
+    const target = (container.clientWidth - 48) / unit.width; // minus padding
+    setScale(Math.min(MAX_SCALE, Math.max(MIN_SCALE, +target.toFixed(2))));
+  };
+
   useEffect(() => {
-    for (let n = 1; n <= numPages; n++) {
-      const wrap = pageRefs.current[n];
-      if (!wrap) continue;
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (e.key === "=" || e.key === "+") {
+        e.preventDefault();
+        zoomBy(0.2);
+      } else if (e.key === "-") {
+        e.preventDefault();
+        zoomBy(-0.2);
+      } else if (e.key === "0") {
+        e.preventDefault();
+        setScale(DEFAULT_SCALE);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      zoomBy(e.deltaY < 0 ? 0.1 : -0.1);
+    };
+    container.addEventListener("wheel", onWheel, { passive: false });
+    return () => container.removeEventListener("wheel", onWheel);
+  }, []);
+
+  // Draw saved highlight overlays onto the (already-built) page layers.
+  const drawAnnotations = useCallback(() => {
+    pageRefs.current.forEach((wrap, n) => {
+      if (!wrap) return;
       const layer = wrap.querySelector(".annLayer") as HTMLDivElement | null;
-      if (!layer) continue;
+      if (!layer) return;
       layer.innerHTML = "";
       const w = wrap.clientWidth;
       const h = wrap.clientHeight;
-      annotations
+      annotationsRef.current
         .filter((a) => a.pdf_page === n && a.pdf_rects)
         .forEach((a) => {
           a.pdf_rects!.forEach((r) => {
@@ -155,8 +230,15 @@ export default function PdfReader({ doc, initialPage }: Props) {
             layer.appendChild(div);
           });
         });
-    }
-  }, [annotations, numPages]);
+    });
+  }, []);
+
+  // Keep refs current and redraw whenever annotations, page count, or zoom change.
+  useEffect(() => {
+    annotationsRef.current = annotations;
+    drawRef.current = drawAnnotations;
+    drawAnnotations();
+  }, [annotations, numPages, scale, drawAnnotations]);
 
   const handleHighlight = async () => {
     const sel = window.getSelection();
@@ -204,9 +286,39 @@ export default function PdfReader({ doc, initialPage }: Props) {
   return (
     <div className="flex flex-col h-full">
       <div className="h-12 shrink-0 border-b border-slate-800 flex items-center gap-3 px-4 text-sm bg-[#0e1117]">
-        <span className="text-slate-400">
+        <span className="text-slate-400 whitespace-nowrap">
           Page {currentPage} / {numPages || "..."}
         </span>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => zoomBy(-0.2)}
+            className="w-7 h-7 rounded bg-slate-800 hover:bg-slate-700 text-slate-200"
+            title="Zoom out (Ctrl/Cmd -)"
+          >
+            -
+          </button>
+          <button
+            onClick={() => setScale(DEFAULT_SCALE)}
+            className="px-2 h-7 rounded bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 tabular-nums"
+            title="Reset zoom (Ctrl/Cmd 0)"
+          >
+            {Math.round((scale / DEFAULT_SCALE) * 100)}%
+          </button>
+          <button
+            onClick={() => zoomBy(0.2)}
+            className="w-7 h-7 rounded bg-slate-800 hover:bg-slate-700 text-slate-200"
+            title="Zoom in (Ctrl/Cmd +)"
+          >
+            +
+          </button>
+          <button
+            onClick={fitWidth}
+            className="px-2 h-7 rounded bg-slate-800 hover:bg-slate-700 text-xs text-slate-300"
+            title="Fit width"
+          >
+            Fit
+          </button>
+        </div>
         <div className="ml-auto flex items-center gap-2">
           {HIGHLIGHT_COLORS.map((c) => (
             <button

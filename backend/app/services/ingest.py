@@ -73,6 +73,13 @@ def ingest_file(
 
     meta = extract.extract_metadata(src, fmt)
 
+    # "auto": classify as a paper when we detect an arXiv id or DOI, else a book.
+    if doc_type == "auto":
+        if fmt == "pdf" and (meta.get("doi") or meta.get("arxiv_id")):
+            doc_type = "paper"
+        else:
+            doc_type = "book"
+
     subdir = "papers" if doc_type == "paper" else "books"
     dest_dir = settings.library_dir / subdir
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -89,6 +96,8 @@ def ingest_file(
         page_count=meta.get("page_count"),
         isbn10=meta.get("isbn10"),
         isbn13=meta.get("isbn13"),
+        doi=meta.get("doi"),
+        arxiv_id=meta.get("arxiv_id"),
         file_hash=file_hash,
         file_size=src.stat().st_size,
         file_path="",  # set after we know the id

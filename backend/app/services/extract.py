@@ -5,6 +5,7 @@ back to the filename so a document is never untitled.
 """
 
 import logging
+import re
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -20,9 +21,13 @@ def extract_metadata(file_path: Path, file_format: str) -> dict:
     except Exception as exc:  # pragma: no cover - defensive
         logger.warning("metadata extraction failed for %s: %s", file_path, exc)
 
-    if not data.get("title"):
-        data["title"] = file_path.stem.replace("_", " ").strip()
+    # Note: title fallback is handled by the caller (ingest) using the original
+    # filename, since file_path here may be a temp upload path.
     return data
+
+
+_ARXIV_RE = re.compile(r"ar[Xx]iv:\s*(\d{4}\.\d{4,5})(v\d+)?", re.I)
+_DOI_RE = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Za-z0-9]+\b")
 
 
 def _from_pdf(file_path: Path) -> dict:
@@ -40,6 +45,19 @@ def _from_pdf(file_path: Path) -> dict:
             out["authors"] = [a.strip() for a in meta["author"].replace(";", ",").split(",") if a.strip()]
         if meta.get("subject"):
             out["description"] = meta["subject"].strip()
+
+        # Scan the first couple of pages for an arXiv id / DOI. Their presence
+        # is a strong signal the document is an academic paper.
+        sample = ""
+        for n in range(min(2, doc.page_count)):
+            sample += doc.load_page(n).get_text()
+        blob = f"{meta.get('subject','')} {meta.get('keywords','')} {sample}"
+        m = _ARXIV_RE.search(blob)
+        if m:
+            out["arxiv_id"] = m.group(1)
+        d = _DOI_RE.search(blob)
+        if d:
+            out["doi"] = d.group(0).rstrip(".")
     return out
 
 

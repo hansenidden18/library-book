@@ -5,7 +5,7 @@ import { UploadCloud, FolderSync, CheckCircle2, XCircle } from "lucide-react";
 import { getImportStatus, triggerScan, uploadDocument } from "../api/client";
 
 export default function UploadPage() {
-  const [docType, setDocType] = useState("book");
+  const [docType, setDocType] = useState("auto");
   const [dragOver, setDragOver] = useState(false);
   const [log, setLog] = useState<{ name: string; ok: boolean; msg: string }[]>([]);
   const [busy, setBusy] = useState(false);
@@ -37,8 +37,8 @@ export default function UploadPage() {
     <div className="max-w-3xl">
       <h1 className="text-2xl font-semibold mb-5">Add documents</h1>
 
-      <div className="flex gap-2 mb-4">
-        {["book", "paper"].map((t) => (
+      <div className="flex items-center gap-2 mb-2">
+        {["auto", "book", "paper"].map((t) => (
           <button
             key={t}
             onClick={() => setDocType(t)}
@@ -50,6 +50,10 @@ export default function UploadPage() {
           </button>
         ))}
       </div>
+      <p className="text-xs text-slate-500 mb-4">
+        <strong>Auto</strong> detects papers from an arXiv ID or DOI in the PDF; everything else
+        is filed as a book. You can change the type later on the document page.
+      </p>
 
       <label
         onDragOver={(e) => {
