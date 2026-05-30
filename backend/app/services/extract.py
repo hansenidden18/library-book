@@ -29,6 +29,107 @@ def extract_metadata(file_path: Path, file_format: str) -> dict:
 _ARXIV_RE = re.compile(r"ar[Xx]iv:\s*(\d{4}\.\d{4,5})(v\d+)?", re.I)
 _DOI_RE = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Za-z0-9]+\b")
 
+# PyMuPDF annotation type ids for text-markup we treat as highlights.
+_MARKUP_TYPES = {8, 9, 10, 11}  # Highlight, Underline, Squiggly, StrikeOut
+_NOTE_TYPES = {0, 2}  # Text (sticky note), FreeText
+
+
+def _rgb_to_hex(rgb) -> str:
+    try:
+        r, g, b = (max(0, min(255, round(c * 255))) for c in rgb[:3])
+        return f"#{r:02x}{g:02x}{b:02x}"
+    except Exception:
+        return "#fde047"
+
+
+def extract_pdf_annotations(file_path: Path) -> list[dict]:
+    """Read highlight/markup and note annotations from a PDF so they can be
+    imported into the app. Reads annotation geometry directly (QuadPoints),
+    so it works even for highlights without a rendered appearance stream.
+
+    Returns dicts shaped like the annotations API: kind, pdf_page (1-based),
+    pdf_rects (normalized 0..1, top-left origin), selected_text, note, color.
+    """
+    try:
+        import fitz
+    except ImportError:
+        return []
+
+    out: list[dict] = []
+    try:
+        with fitz.open(file_path) as doc:
+            for pno in range(doc.page_count):
+                page = doc.load_page(pno)
+                pw, ph = page.rect.width, page.rect.height
+                if pw <= 0 or ph <= 0:
+                    continue
+                for annot in page.annots() or []:
+                    try:
+                        atype = annot.type[0]
+                        info = annot.info or {}
+                        if atype in _MARKUP_TYPES:
+                            quads = _quad_rects(annot)
+                            if not quads:
+                                r = annot.rect
+                                quads = [(r.x0, r.y0, r.x1, r.y1)]
+                            norm = [
+                                {"x": x0 / pw, "y": y0 / ph, "w": (x1 - x0) / pw, "h": (y1 - y0) / ph}
+                                for (x0, y0, x1, y1) in quads
+                            ]
+                            text = " ".join(
+                                page.get_textbox(fitz.Rect(*q)).strip() for q in quads
+                            ).strip()
+                            colors = annot.colors or {}
+                            color = colors.get("stroke") or colors.get("fill")
+                            out.append(
+                                {
+                                    "kind": "highlight",
+                                    "pdf_page": pno + 1,
+                                    "pdf_rects": norm,
+                                    "selected_text": text or None,
+                                    "note": info.get("content") or None,
+                                    "color": _rgb_to_hex(color) if color else "#fde047",
+                                }
+                            )
+                        elif atype in _NOTE_TYPES and info.get("content"):
+                            r = annot.rect
+                            out.append(
+                                {
+                                    "kind": "note",
+                                    "pdf_page": pno + 1,
+                                    "pdf_rects": [
+                                        {
+                                            "x": r.x0 / pw,
+                                            "y": r.y0 / ph,
+                                            "w": max(r.width, 14) / pw,
+                                            "h": max(r.height, 14) / ph,
+                                        }
+                                    ],
+                                    "selected_text": None,
+                                    "note": info.get("content"),
+                                    "color": "#93c5fd",
+                                }
+                            )
+                    except Exception:  # pragma: no cover - per-annot best effort
+                        continue
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("annotation extraction failed for %s: %s", file_path, exc)
+    return out
+
+
+def _quad_rects(annot) -> list[tuple[float, float, float, float]]:
+    """Convert a markup annotation's QuadPoints into per-line bounding rects."""
+    verts = annot.vertices
+    if not verts or len(verts) % 4 != 0:
+        return []
+    rects = []
+    for i in range(0, len(verts), 4):
+        quad = verts[i : i + 4]
+        xs = [p[0] for p in quad]
+        ys = [p[1] for p in quad]
+        rects.append((min(xs), min(ys), max(xs), max(ys)))
+    return rects
+
 
 def _from_pdf(file_path: Path) -> dict:
     try:

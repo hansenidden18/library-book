@@ -5,6 +5,7 @@ the managed library tree -> generate cover -> insert document row -> index FTS.
 """
 
 import hashlib
+import json
 import logging
 import re
 import shutil
@@ -13,7 +14,7 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..models import Author, Document, DocumentAuthor
+from ..models import Annotation, Author, Document, DocumentAuthor
 from . import covers, extract, fts
 
 logger = logging.getLogger(__name__)
@@ -129,6 +130,12 @@ def ingest_file(
     if cover_rel:
         doc.cover_path = cover_rel
 
+    # Import highlights/notes the user made in another PDF viewer.
+    if fmt == "pdf":
+        imported = import_pdf_annotations(db, doc.id, dest_path)
+        if imported:
+            logger.info("imported %d annotation(s) for document %s", imported, doc.id)
+
     db.flush()
     db.refresh(doc)
     fts.index_document(db, doc)
@@ -136,3 +143,22 @@ def ingest_file(
     db.refresh(doc)
     logger.info("ingested document %s: %s", doc.id, doc.title)
     return doc
+
+
+def import_pdf_annotations(db: Session, doc_id: int, pdf_path: Path) -> int:
+    """Create Annotation rows from a PDF's embedded markup. Returns the count."""
+    count = 0
+    for a in extract.extract_pdf_annotations(pdf_path):
+        db.add(
+            Annotation(
+                document_id=doc_id,
+                kind=a["kind"],
+                pdf_page=a.get("pdf_page"),
+                pdf_rects=json.dumps(a["pdf_rects"]) if a.get("pdf_rects") else None,
+                selected_text=a.get("selected_text"),
+                note=a.get("note"),
+                color=a.get("color"),
+            )
+        )
+        count += 1
+    return count

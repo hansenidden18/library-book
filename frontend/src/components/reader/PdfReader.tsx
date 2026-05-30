@@ -95,9 +95,10 @@ export default function PdfReader({ doc, initialPage }: Props) {
           canvasContext: ctx,
           viewport,
           transform,
-          // Render embedded annotations (e.g. highlights from Preview/Adobe)
-          // that carry an appearance stream onto the canvas.
-          annotationMode: (pdfjsLib as any).AnnotationMode?.ENABLE ?? 1,
+          // Don't draw embedded annotations onto the canvas: highlights/notes
+          // are imported into the app and drawn as managed overlays, so canvas
+          // rendering here would double them up.
+          annotationMode: (pdfjsLib as any).AnnotationMode?.DISABLE ?? 0,
         }).promise;
 
         // Text layer for selection.

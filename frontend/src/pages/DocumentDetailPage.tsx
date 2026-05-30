@@ -9,6 +9,7 @@ import {
   coverUrl,
   deleteDocument,
   getDocument,
+  importEmbeddedAnnotations,
   listShelves,
   searchMetadata,
   setDocumentTags,
@@ -122,6 +123,20 @@ export default function DocumentDetailPage() {
                 <a href={`/api/documents/${doc.id}/file`} download className="btn-sec flex items-center gap-1">
                   <Download size={14} /> Download
                 </a>
+                {doc.file_format === "pdf" && (
+                  <button
+                    onClick={async () => {
+                      const res = await importEmbeddedAnnotations(doc.id);
+                      if (res.imported > 0) alert(`Imported ${res.imported} highlight(s)/note(s).`);
+                      else if (res.skipped) alert("This document already has highlights in the app.");
+                      else alert("No embedded highlights found in this PDF.");
+                    }}
+                    className="btn-sec"
+                    title="Import highlights you made in another PDF viewer"
+                  >
+                    Import highlights
+                  </button>
+                )}
                 {doc.metadata_locked && (
                   <span className="text-xs text-amber-400 flex items-center gap-1">
                     <Lock size={12} /> locked

@@ -170,6 +170,12 @@ export const updateAnnotation = async (id: number, patch: Partial<Annotation>): 
   return data;
 };
 export const deleteAnnotation = async (id: number) => api.delete(`/annotations/${id}`);
+export const importEmbeddedAnnotations = async (
+  docId: number,
+): Promise<{ imported: number; skipped?: boolean; reason?: string }> => {
+  const { data } = await api.post(`/documents/${docId}/annotations/import`);
+  return data;
+};
 
 // --- import ---
 export const getImportStatus = async () => {

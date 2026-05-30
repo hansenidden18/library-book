@@ -3,12 +3,14 @@
 import json
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..database import get_db
 from ..models import Annotation, Document
 from ..schemas import AnnotationCreate, AnnotationOut, AnnotationUpdate
+from ..services.ingest import import_pdf_annotations
 
 router = APIRouter(prefix="/api", tags=["annotations"])
 
@@ -36,6 +38,27 @@ def list_annotations(doc_id: int, kind: str | None = None, db: Session = Depends
         stmt = stmt.where(Annotation.kind == kind)
     stmt = stmt.order_by(Annotation.pdf_page, Annotation.created_at)
     return [_to_out(a) for a in db.execute(stmt).scalars().all()]
+
+
+@router.post("/documents/{doc_id}/annotations/import")
+def import_embedded_annotations(doc_id: int, db: Session = Depends(get_db)):
+    """Import highlights/notes embedded in the PDF (made in another viewer)."""
+    doc = db.get(Document, doc_id)
+    if not doc:
+        raise HTTPException(404, "document not found")
+    if doc.file_format != "pdf":
+        return {"imported": 0, "reason": "not a pdf"}
+    existing = db.execute(
+        select(func.count(Annotation.id)).where(Annotation.document_id == doc_id)
+    ).scalar_one()
+    if existing:
+        return {"imported": 0, "skipped": True, "reason": "document already has annotations"}
+    path = settings.data_dir / doc.file_path
+    if not path.exists():
+        raise HTTPException(404, "file missing on disk")
+    n = import_pdf_annotations(db, doc_id, path)
+    db.commit()
+    return {"imported": n}
 
 
 @router.post("/documents/{doc_id}/annotations", response_model=AnnotationOut)
