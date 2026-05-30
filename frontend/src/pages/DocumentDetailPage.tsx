@@ -54,6 +54,8 @@ export default function DocumentDetailPage() {
   const remove = async () => {
     if (!confirm("Delete this document and its file?")) return;
     await deleteDocument(docId, true);
+    qc.invalidateQueries({ queryKey: ["documents"] });
+    qc.invalidateQueries({ queryKey: ["shelves"] });
     navigate("/");
   };
 

@@ -47,26 +47,44 @@ def get_db() -> Generator[Session, None, None]:
 
 
 # --- FTS5 full-text index over document metadata -----------------------
-# External-content-ish setup kept in sync by triggers. We store a flat
-# ``authors_text``/``tags_text`` rebuilt by the application on writes, plus
-# triggers that mirror the core scalar columns from ``documents``.
+# A standard (non-contentless) FTS5 table: it keeps its own copy of the
+# indexed text, which lets the app INSERT/DELETE rows by rowid as documents
+# change. We rebuild it from the documents table on startup so the index is
+# always consistent (and to migrate older contentless tables, which could not
+# be DELETEd from).
 
-_FTS_SETUP = """
-CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
-    title, subtitle, description, authors_text, tags_text, venue, publisher,
-    content=''
+_FTS_CREATE = """
+CREATE VIRTUAL TABLE documents_fts USING fts5(
+    title, subtitle, description, authors_text, tags_text, venue, publisher
 );
+"""
+
+_FTS_REPOPULATE = """
+INSERT INTO documents_fts(rowid, title, subtitle, description, authors_text, tags_text, venue, publisher)
+SELECT d.id,
+       COALESCE(d.title, ''),
+       COALESCE(d.subtitle, ''),
+       COALESCE(d.description, ''),
+       COALESCE((SELECT group_concat(a.name, ' ')
+                 FROM document_authors da JOIN authors a ON a.id = da.author_id
+                 WHERE da.document_id = d.id), ''),
+       COALESCE((SELECT group_concat(t.name, ' ')
+                 FROM document_tags dt JOIN tags t ON t.id = dt.tag_id
+                 WHERE dt.document_id = d.id), ''),
+       COALESCE(d.venue, ''),
+       COALESCE(d.publisher, '')
+FROM documents d;
 """
 
 
 def init_db() -> None:
-    """Create directories, tables, and the FTS index. Idempotent."""
+    """Create directories, tables, and rebuild the FTS index. Idempotent."""
     settings.ensure_dirs()
     # Import models so they register on Base.metadata before create_all.
     from . import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
     with engine.begin() as conn:
-        for stmt in _FTS_SETUP.strip().split(";"):
-            if stmt.strip():
-                conn.execute(text(stmt))
+        conn.execute(text("DROP TABLE IF EXISTS documents_fts"))
+        conn.execute(text(_FTS_CREATE.strip()))
+        conn.execute(text(_FTS_REPOPULATE.strip()))
