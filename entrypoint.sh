@@ -20,7 +20,7 @@ mkdir -p \
 # If running as root, fix ownership and drop to the requested UID/GID.
 if [ "$(id -u)" = "0" ]; then
     chown -R "$USER_ID:$GROUP_ID" "$DATA_DIR" 2>/dev/null || true
-    exec su-exec "$USER_ID:$GROUP_ID" "$@"
+    exec gosu "$USER_ID:$GROUP_ID" "$@"
 fi
 
 exec "$@"

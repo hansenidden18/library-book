@@ -9,9 +9,10 @@ RUN npm run build
 # --- stage 2: python runtime serving API + built SPA ---
 FROM python:3.12-slim
 
-# su-exec lets us drop privileges to the configured UID/GID at runtime.
+# gosu lets us drop privileges to the configured UID/GID at runtime.
+# (Debian base -> gosu; the Alpine equivalent would be su-exec.)
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends su-exec \
+    && apt-get install -y --no-install-recommends gosu \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
