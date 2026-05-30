@@ -65,6 +65,10 @@ export default function PdfReader({ doc, initialPage }: Props) {
         wrap.style.width = `${Math.floor(viewport.width)}px`;
         wrap.style.height = `${Math.floor(viewport.height)}px`;
         wrap.dataset.page = String(n);
+        // pdf.js positions the text layer using these CSS variables; without
+        // them the selectable text is mis-scaled and offset from the glyphs.
+        wrap.style.setProperty("--scale-factor", String(scale));
+        wrap.style.setProperty("--total-scale-factor", String(scale));
 
         const canvas = document.createElement("canvas");
         // Backing store at full device resolution; CSS size at logical size.
