@@ -102,25 +102,31 @@ export default function EpubReader({ doc, initialCfi }: Props) {
   // Apply typography + theme to the rendition. Safe to call repeatedly.
   const applyStyles = (rendition: Rendition) => {
     const fg = THEME_FG[theme];
+    const bg = THEME_BG[theme];
     rendition.themes.override("color", fg, true);
-    rendition.themes.override("background", "transparent", true);
+    rendition.themes.override("background", bg, true);
     rendition.themes.default({
+      // Paint the real page background (html + body) so dark/sepia cover the
+      // whole page, not just the outer margins.
+      html: { background: `${bg} !important` },
       body: {
         "font-family": `${serif ? SERIF : SANS} !important`,
         "line-height": `${lineHeight} !important`,
         color: `${fg} !important`,
-        background: "transparent !important",
+        background: `${bg} !important`,
         padding: "0 !important",
         margin: "0 !important",
         "text-rendering": "optimizeLegibility",
       },
       p: {
         "line-height": `${lineHeight} !important`,
+        color: `${fg} !important`,
         "text-align": "justify",
         "-webkit-hyphens": "auto",
         hyphens: "auto",
         "overflow-wrap": "break-word",
       },
+      "div, span, li": { color: `${fg} !important` },
       a: { color: `${fg} !important` },
       "h1, h2, h3, h4, h5, h6": { color: `${fg} !important`, "line-height": "1.3 !important" },
       img: { "max-width": "100% !important", height: "auto !important" },
