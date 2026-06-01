@@ -401,7 +401,11 @@ export default function PdfReader({ doc, initialPage }: Props) {
           </button>
         </div>
       </div>
-      <div ref={containerRef} className="flex-1 overflow-y-auto bg-[#1a1d24] px-2 sm:px-4" style={{ touchAction: "pan-y" }}>
+      <div
+        ref={containerRef}
+        className="flex-1 overflow-auto bg-[#1a1d24] px-2 sm:px-4"
+        style={{ touchAction: "pan-x pan-y" }}
+      >
         <div ref={innerRef} />
       </div>
     </div>
