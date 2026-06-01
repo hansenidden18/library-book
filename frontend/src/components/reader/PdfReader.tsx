@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as pdfjsLib from "pdfjs-dist";
+import { Contrast, Moon, Sun } from "lucide-react";
 // @ts-expect-error - vite ?url import for the worker
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import {
@@ -18,6 +19,19 @@ const MIN_SCALE = 0.5;
 const MAX_SCALE = 5;
 const HIGHLIGHT_COLORS = ["#fde047", "#86efac", "#93c5fd", "#fca5a5"];
 
+type PdfTheme = "light" | "dark" | "sepia";
+// Applied to the page canvas only (so highlights/selection stay true-color).
+const PAGE_FILTERS: Record<PdfTheme, string> = {
+  light: "none",
+  dark: "invert(0.9) hue-rotate(180deg)",
+  sepia: "sepia(0.55) brightness(0.96) contrast(0.95)",
+};
+const GUTTER_BG: Record<PdfTheme, string> = {
+  light: "#1a1d24",
+  dark: "#0b0d12",
+  sepia: "#2b2620",
+};
+
 interface Props {
   doc: Document;
   initialPage: number;
@@ -32,10 +46,14 @@ export default function PdfReader({ doc, initialPage }: Props) {
   const observerRef = useRef<IntersectionObserver | null>(null);
   const currentPageRef = useRef(initialPage || 1);
   const annotationsRef = useRef<Annotation[]>([]);
+  const themeRef = useRef<PdfTheme>(
+    ((typeof localStorage !== "undefined" && localStorage.getItem("lb-pdf-theme")) as PdfTheme) || "light",
+  );
 
   const [numPages, setNumPages] = useState(0);
   const [currentPage, setCurrentPage] = useState(initialPage || 1);
   const [scale, setScale] = useState(DEFAULT_SCALE);
+  const [theme, setTheme] = useState<PdfTheme>(themeRef.current);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [color, setColor] = useState(HIGHLIGHT_COLORS[0]);
   const restored = useRef(false);
@@ -93,6 +111,7 @@ export default function PdfReader({ doc, initialPage }: Props) {
       canvas.height = Math.floor(viewport.height * os);
       canvas.style.width = `${Math.floor(viewport.width)}px`;
       canvas.style.height = `${Math.floor(viewport.height)}px`;
+      canvas.style.filter = PAGE_FILTERS[themeRef.current];
       wrap.appendChild(canvas);
 
       const textLayerDiv = document.createElement("div");
@@ -210,6 +229,25 @@ export default function PdfReader({ doc, initialPage }: Props) {
     annotationsRef.current = annotations;
     drawAllAnnotations();
   }, [annotations, drawAllAnnotations]);
+
+  // Apply the reading theme: filter the rendered page canvases and tint the
+  // page/placeholder backgrounds. No re-render needed.
+  useEffect(() => {
+    themeRef.current = theme;
+    try {
+      localStorage.setItem("lb-pdf-theme", theme);
+    } catch {
+      /* ignore */
+    }
+    if (innerRef.current) {
+      innerRef.current.className =
+        theme === "dark" ? "pdf-dark" : theme === "sepia" ? "pdf-sepia" : "";
+    }
+    pageRefs.current.forEach((w) => {
+      const cv = w?.querySelector("canvas") as HTMLCanvasElement | null;
+      if (cv) cv.style.filter = PAGE_FILTERS[theme];
+    });
+  }, [theme]);
 
   // Track scroll -> current page + progress.
   useEffect(() => {
@@ -382,6 +420,13 @@ export default function PdfReader({ doc, initialPage }: Props) {
           <button onClick={fitWidth} className="px-2 h-7 rounded bg-slate-800 hover:bg-slate-700 text-xs text-slate-300" title="Fit width">
             Fit
           </button>
+          <button
+            onClick={() => setTheme(theme === "light" ? "dark" : theme === "dark" ? "sepia" : "light")}
+            className="w-7 h-7 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center"
+            title={`Theme: ${theme} (tap to change)`}
+          >
+            {theme === "light" ? <Sun size={15} /> : theme === "dark" ? <Moon size={15} /> : <Contrast size={15} />}
+          </button>
         </div>
         <div className="ml-auto flex items-center gap-2">
           {HIGHLIGHT_COLORS.map((c) => (
@@ -403,10 +448,10 @@ export default function PdfReader({ doc, initialPage }: Props) {
       </div>
       <div
         ref={containerRef}
-        className="flex-1 overflow-auto bg-[#1a1d24] px-2 sm:px-4"
-        style={{ touchAction: "pan-x pan-y" }}
+        className="flex-1 overflow-auto px-2 sm:px-4"
+        style={{ touchAction: "pan-x pan-y", background: GUTTER_BG[theme] }}
       >
-        <div ref={innerRef} />
+        <div ref={innerRef} className={theme === "dark" ? "pdf-dark" : theme === "sepia" ? "pdf-sepia" : ""} />
       </div>
     </div>
   );

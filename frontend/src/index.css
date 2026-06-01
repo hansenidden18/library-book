@@ -62,3 +62,16 @@ body {
   font-size: 0.85rem;
   background: #fff;
 }
+
+/* PDF reading themes: tint the page + placeholder so unloaded pages and edges
+   match the canvas (which is color-filtered inline). */
+.pdf-dark .lb-page,
+.pdf-dark .placeholder {
+  background: #15171c;
+  color: #475569;
+}
+.pdf-sepia .lb-page,
+.pdf-sepia .placeholder {
+  background: #f1e7d0;
+  color: #9c8e72;
+}
