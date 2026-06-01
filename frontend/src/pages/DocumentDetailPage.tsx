@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { BookOpen, Download, Lock, Trash2, Sparkles, Plus } from "lucide-react";
 import {
   addToShelf,
+  annotatedFileUrl,
   applyMetadata,
   citationUrl,
   coverUrl,
@@ -123,6 +124,16 @@ export default function DocumentDetailPage() {
                 <a href={`/api/documents/${doc.id}/file`} download className="btn-sec flex items-center gap-1">
                   <Download size={14} /> Download
                 </a>
+                {doc.file_format === "pdf" && (
+                  <a
+                    href={annotatedFileUrl(doc.id)}
+                    download
+                    className="btn-sec flex items-center gap-1"
+                    title="Download a copy with your highlights burned in"
+                  >
+                    <Download size={14} /> + highlights
+                  </a>
+                )}
                 {doc.file_format === "pdf" && (
                   <button
                     onClick={async () => {

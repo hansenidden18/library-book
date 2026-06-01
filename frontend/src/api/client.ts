@@ -61,6 +61,29 @@ export const deleteDocument = async (id: number, deleteFile = false) =>
 export const citationUrl = (id: number, format: string) =>
   `/api/documents/${id}/citation?format=${format}`;
 
+export const annotatedFileUrl = (id: number) => `/api/documents/${id}/file/annotated`;
+
+// --- notebook ---
+export interface NotebookEntry {
+  id: number;
+  document_id: number;
+  document_title: string;
+  doc_type: string;
+  kind: string;
+  pdf_page: number | null;
+  epub_cfi_range: string | null;
+  selected_text: string | null;
+  note: string | null;
+  color: string | null;
+  created_at: string | null;
+}
+
+export const getNotebook = async (kind?: string): Promise<NotebookEntry[]> => {
+  const { data } = await api.get("/notebook", { params: { kind } });
+  return data;
+};
+export const notebookExportUrl = () => "/api/notebook/export";
+
 // --- progress ---
 export const getProgress = async (id: number): Promise<Progress> => {
   const { data } = await api.get(`/documents/${id}/progress`);

@@ -7,6 +7,7 @@ import {
   Library,
   Layers,
   Menu,
+  NotebookPen,
   Search,
   Settings,
   Upload,
@@ -78,6 +79,9 @@ export default function AppShell() {
           </NavLink>
           <NavLink to="/stats" className={link}>
             <BarChart3 size={18} /> Stats
+          </NavLink>
+          <NavLink to="/notebook" className={link}>
+            <NotebookPen size={18} /> Notebook
           </NavLink>
           <NavLink to="/shelves" className={link}>
             <Layers size={18} /> Shelves

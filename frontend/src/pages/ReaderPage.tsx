@@ -1,9 +1,12 @@
+import { Suspense, lazy } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { getDocument, getProgress } from "../api/client";
-import PdfReader from "../components/reader/PdfReader";
-import EpubReader from "../components/reader/EpubReader";
+
+// Code-split the heavy pdf.js / epub.js readers out of the main bundle.
+const PdfReader = lazy(() => import("../components/reader/PdfReader"));
+const EpubReader = lazy(() => import("../components/reader/EpubReader"));
 
 export default function ReaderPage() {
   const { id } = useParams();
@@ -29,11 +32,15 @@ export default function ReaderPage() {
         <span className="ml-auto text-xs text-slate-500 uppercase">{doc.file_format}</span>
       </div>
       <div className="flex-1 overflow-hidden">
-        {doc.file_format === "pdf" ? (
-          <PdfReader doc={doc} initialPage={progress?.pdf_page ?? 1} />
-        ) : (
-          <EpubReader doc={doc} initialCfi={progress?.epub_cfi ?? null} />
-        )}
+        <Suspense
+          fallback={<div className="h-full flex items-center justify-center text-slate-500">Loading reader...</div>}
+        >
+          {doc.file_format === "pdf" ? (
+            <PdfReader doc={doc} initialPage={progress?.pdf_page ?? 1} />
+          ) : (
+            <EpubReader doc={doc} initialCfi={progress?.epub_cfi ?? null} />
+          )}
+        </Suspense>
       </div>
     </div>
   );

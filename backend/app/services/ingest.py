@@ -136,6 +136,14 @@ def ingest_file(
         if imported:
             logger.info("imported %d annotation(s) for document %s", imported, doc.id)
 
+    # Auto-enrich papers from arXiv/Crossref when we found an id.
+    if doc_type == "paper" and (doc.arxiv_id or doc.doi):
+        _auto_fetch_metadata(db, doc)
+
+    # Index the full text for content search.
+    body = extract.extract_fulltext(dest_path, fmt)
+    fts.index_content(db, doc.id, body)
+
     db.flush()
     db.refresh(doc)
     fts.index_document(db, doc)
@@ -143,6 +151,76 @@ def ingest_file(
     db.refresh(doc)
     logger.info("ingested document %s: %s", doc.id, doc.title)
     return doc
+
+
+def _auto_fetch_metadata(db: Session, doc: Document) -> None:
+    """Fill in paper metadata from arXiv/Crossref. Best-effort, never fatal."""
+    if not settings.metadata_fetch_enabled:
+        return
+    try:
+        from . import metadata_fetch
+
+        candidates = []
+        if doc.arxiv_id:
+            candidates = metadata_fetch.fetch_arxiv(doc.arxiv_id)
+        if not candidates and doc.doi:
+            candidates = metadata_fetch.fetch_crossref(doi=doc.doi)
+        if not candidates:
+            return
+        c = candidates[0]
+        if c.title:
+            doc.title = c.title
+        if c.description:
+            doc.description = c.description
+        if c.venue:
+            doc.venue = c.venue
+        if c.year:
+            doc.year = c.year
+        if c.publisher:
+            doc.publisher = c.publisher
+        doc.metadata_source = c.source
+        if c.authors:
+            doc.author_links.clear()
+            db.flush()
+            for i, name in enumerate(c.authors):
+                name = name.strip()
+                if not name:
+                    continue
+                author = db.query(Author).filter(Author.name == name).first()
+                if not author:
+                    author = Author(name=name)
+                    db.add(author)
+                    db.flush()
+                db.add(DocumentAuthor(document_id=doc.id, author_id=author.id, position=i))
+        logger.info("auto-fetched metadata for document %s from %s", doc.id, c.source)
+    except Exception as exc:  # pragma: no cover - best effort
+        logger.warning("auto metadata fetch failed for %s: %s", doc.id, exc)
+
+
+def backfill_content_index() -> None:
+    """Index full text for documents missing from content_fts (one-time per doc)."""
+    from ..database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        docs = db.query(Document).all()
+        indexed = 0
+        for doc in docs:
+            if fts.has_content(db, doc.id):
+                continue
+            path = settings.data_dir / doc.file_path
+            if not path.exists():
+                continue
+            body = extract.extract_fulltext(path, doc.file_format)
+            fts.index_content(db, doc.id, body)
+            indexed += 1
+        if indexed:
+            db.commit()
+            logger.info("backfilled content index for %d document(s)", indexed)
+    except Exception as exc:  # pragma: no cover
+        logger.warning("content backfill failed: %s", exc)
+    finally:
+        db.close()
 
 
 def import_pdf_annotations(db: Session, doc_id: int, pdf_path: Path) -> int:

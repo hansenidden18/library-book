@@ -25,6 +25,14 @@ export default function LibraryPage({ docType }: { docType?: string }) {
     queryFn: () => listDocuments(filters),
   });
 
+  // "Continue reading" only on the unfiltered home view.
+  const isHome = !docType && !shelfId && !q && !status;
+  const { data: continueReading } = useQuery({
+    queryKey: ["documents", "continue"],
+    queryFn: () => listDocuments({ sort: "last_read", status: "reading" }),
+    enabled: isHome,
+  });
+
   const title = q
     ? `Search: "${q}"`
     : docType === "paper"
@@ -70,6 +78,19 @@ export default function LibraryPage({ docType }: { docType?: string }) {
           </select>
         </div>
       </div>
+
+      {isHome && continueReading && continueReading.length > 0 && (
+        <div className="mb-8">
+          <h2 className="text-sm uppercase tracking-wide text-slate-500 mb-3">Continue reading</h2>
+          <div className="flex gap-5 overflow-x-auto pb-2">
+            {continueReading.slice(0, 12).map((doc) => (
+              <div key={doc.id} className="w-[140px] shrink-0">
+                <BookCard doc={doc} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="text-slate-500">Loading...</div>

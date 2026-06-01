@@ -11,9 +11,18 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..config import settings
 from ..database import get_db
-from ..models import Author, Document, DocumentAuthor, ShelfDocument, Tag, document_tags
+from ..models import (
+    Annotation,
+    Author,
+    Document,
+    DocumentAuthor,
+    ReadingProgress,
+    ShelfDocument,
+    Tag,
+    document_tags,
+)
 from ..schemas import DocumentOut, DocumentUpdate
-from ..services import citations, fts, ingest
+from ..services import citations, export_pdf, fts, ingest
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/documents", tags=["documents"])
@@ -63,14 +72,17 @@ def list_documents(
             return []
         stmt = stmt.where(Document.id.in_(ids))
 
-    sort_map = {
-        "added_desc": Document.added_at.desc(),
-        "added_asc": Document.added_at.asc(),
-        "title_asc": Document.title.asc(),
-        "title_desc": Document.title.desc(),
-        "year_desc": Document.year.desc(),
-    }
-    stmt = stmt.order_by(sort_map.get(sort, Document.added_at.desc()))
+    if sort == "last_read":
+        stmt = stmt.join(ReadingProgress).order_by(ReadingProgress.updated_at.desc())
+    else:
+        sort_map = {
+            "added_desc": Document.added_at.desc(),
+            "added_asc": Document.added_at.asc(),
+            "title_asc": Document.title.asc(),
+            "title_desc": Document.title.desc(),
+            "year_desc": Document.year.desc(),
+        }
+        stmt = stmt.order_by(sort_map.get(sort, Document.added_at.desc()))
 
     docs = db.execute(stmt).scalars().unique().all()
     if status:
@@ -160,6 +172,28 @@ def get_file(doc_id: int, db: Session = Depends(get_db)):
         media_type=MEDIA_TYPES.get(doc.file_format, "application/octet-stream"),
         filename=path.name,
     )
+
+
+@router.get("/{doc_id}/file/annotated")
+def get_annotated_file(doc_id: int, db: Session = Depends(get_db)):
+    """Download a PDF with the app's highlights/notes burned in."""
+    doc = _load(db, doc_id)
+    if doc.file_format != "pdf":
+        raise HTTPException(400, "annotated download is only available for PDFs")
+    src = settings.data_dir / doc.file_path
+    if not src.exists():
+        raise HTTPException(404, "file missing on disk")
+    anns = db.query(Annotation).filter(Annotation.document_id == doc_id).all()
+
+    settings.tmp_dir.mkdir(parents=True, exist_ok=True)
+    out = settings.tmp_dir / f"annotated-{doc_id}.pdf"
+    if not export_pdf.build_annotated_pdf(src, anns, out):
+        raise HTTPException(500, "could not build annotated PDF")
+
+    from pathlib import Path as _P
+
+    fname = f"{_P(doc.file_path).stem}-highlighted.pdf"
+    return FileResponse(out, media_type="application/pdf", filename=fname)
 
 
 @router.get("/{doc_id}/cover")

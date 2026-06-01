@@ -36,21 +36,57 @@ def index_document(db: Session, doc: Document) -> None:
 
 def remove_document(db: Session, doc_id: int) -> None:
     db.execute(text("DELETE FROM documents_fts WHERE rowid = :id"), {"id": doc_id})
+    db.execute(text("DELETE FROM content_fts WHERE rowid = :id"), {"id": doc_id})
+
+
+def index_content(db: Session, doc_id: int, body: str) -> None:
+    """Index a document's full text for content search."""
+    db.execute(text("DELETE FROM content_fts WHERE rowid = :id"), {"id": doc_id})
+    if body:
+        db.execute(
+            text("INSERT INTO content_fts(rowid, body) VALUES (:id, :body)"),
+            {"id": doc_id, "body": body},
+        )
+
+
+def has_content(db: Session, doc_id: int) -> bool:
+    row = db.execute(
+        text("SELECT 1 FROM content_fts WHERE rowid = :id LIMIT 1"), {"id": doc_id}
+    ).fetchone()
+    return row is not None
 
 
 def search_ids(db: Session, query: str, limit: int = 200) -> list[int]:
-    """Return document ids matching an FTS query, best matches first."""
+    """Return document ids matching the query, metadata matches ranked first,
+    then full-text content matches. De-duplicated, best matches first."""
     cleaned = _sanitize(query)
     if not cleaned:
         return []
-    rows = db.execute(
+    meta = db.execute(
         text(
             "SELECT rowid FROM documents_fts WHERE documents_fts MATCH :q "
             "ORDER BY rank LIMIT :limit"
         ),
         {"q": cleaned, "limit": limit},
     ).fetchall()
-    return [r[0] for r in rows]
+    ids = [r[0] for r in meta]
+    seen = set(ids)
+    try:
+        content = db.execute(
+            text(
+                "SELECT rowid FROM content_fts WHERE content_fts MATCH :q "
+                "ORDER BY rank LIMIT :limit"
+            ),
+            {"q": cleaned, "limit": limit},
+        ).fetchall()
+        for (rid,) in content:
+            if rid not in seen:
+                seen.add(rid)
+                ids.append(rid)
+    except Exception:
+        # content_fts may not exist on very old databases
+        pass
+    return ids
 
 
 def _sanitize(query: str) -> str:

@@ -117,6 +117,52 @@ def extract_pdf_annotations(file_path: Path) -> list[dict]:
     return out
 
 
+def extract_fulltext(file_path: Path, file_format: str, max_chars: int = 2_000_000) -> str:
+    """Extract the readable text of a document for full-text search."""
+    try:
+        if file_format == "pdf":
+            return _pdf_fulltext(file_path, max_chars)
+        if file_format == "epub":
+            return _epub_fulltext(file_path, max_chars)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("fulltext extraction failed for %s: %s", file_path, exc)
+    return ""
+
+
+def _pdf_fulltext(file_path: Path, max_chars: int) -> str:
+    try:
+        import fitz
+    except ImportError:
+        return ""
+    parts: list[str] = []
+    total = 0
+    with fitz.open(file_path) as doc:
+        for page in doc:
+            t = page.get_text()
+            parts.append(t)
+            total += len(t)
+            if total >= max_chars:
+                break
+    return " ".join(parts)[:max_chars]
+
+
+def _epub_fulltext(file_path: Path, max_chars: int) -> str:
+    from bs4 import BeautifulSoup
+    from ebooklib import ITEM_DOCUMENT, epub
+
+    book = epub.read_epub(str(file_path))
+    parts: list[str] = []
+    total = 0
+    for item in book.get_items_of_type(ITEM_DOCUMENT):
+        soup = BeautifulSoup(item.get_content(), "html.parser")
+        t = soup.get_text(" ", strip=True)
+        parts.append(t)
+        total += len(t)
+        if total >= max_chars:
+            break
+    return " ".join(parts)[:max_chars]
+
+
 def _quad_rects(annot) -> list[tuple[float, float, float, float]]:
     """Convert a markup annotation's QuadPoints into per-line bounding rects."""
     verts = annot.vertices

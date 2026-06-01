@@ -77,6 +77,12 @@ FROM documents d;
 """
 
 
+# Full-text index over document *contents* (the extracted body text). Unlike
+# the metadata index it isn't rebuilt from a column, so we keep it across
+# restarts and backfill any documents that aren't indexed yet.
+_CONTENT_FTS_CREATE = "CREATE VIRTUAL TABLE IF NOT EXISTS content_fts USING fts5(body);"
+
+
 def init_db() -> None:
     """Create directories, tables, and rebuild the FTS index. Idempotent."""
     settings.ensure_dirs()
@@ -88,3 +94,4 @@ def init_db() -> None:
         conn.execute(text("DROP TABLE IF EXISTS documents_fts"))
         conn.execute(text(_FTS_CREATE.strip()))
         conn.execute(text(_FTS_REPOPULATE.strip()))
+        conn.execute(text(_CONTENT_FTS_CREATE))

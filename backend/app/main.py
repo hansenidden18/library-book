@@ -23,6 +23,7 @@ from .routers import (
     documents,
     import_,
     metadata,
+    notebook,
     opds,
     progress,
     search,
@@ -49,6 +50,12 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(sweep_stale_sessions, "interval", seconds=60, id="session_sweeper")
     scheduler.start()
     watch_manager.start()
+    # Backfill the full-text content index for any not-yet-indexed documents.
+    import threading
+
+    from .services.ingest import backfill_content_index
+
+    threading.Thread(target=backfill_content_index, daemon=True).start()
     logger.info("library-book %s started", __version__)
     yield
     watch_manager.stop()
@@ -74,6 +81,7 @@ for module in (
     tags,
     search,
     metadata,
+    notebook,
     import_,
     settings_router,
     opds,

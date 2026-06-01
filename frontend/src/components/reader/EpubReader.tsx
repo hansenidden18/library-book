@@ -13,6 +13,7 @@ import {
   deleteAnnotation,
   fileUrl,
   listAnnotations,
+  updateAnnotation,
 } from "../../api/client";
 import type { Annotation, Document } from "../../api/types";
 import { useReadingSession } from "../../hooks/useReadingSession";
@@ -37,6 +38,8 @@ const THEME_FG: Record<ThemeName, string> = {
 
 const SERIF = '"Iowan Old Style", "Palatino Linotype", Georgia, "Times New Roman", serif';
 const SANS = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+
+const HL_COLORS = ["#fbbf24", "#86efac", "#93c5fd", "#fca5a5", "#d8b4fe"];
 
 // Persisted reading preferences.
 const load = <T,>(key: string, fallback: T): T => {
@@ -69,6 +72,9 @@ export default function EpubReader({ doc, initialCfi }: Props) {
   const [fontPct, setFontPct] = useState<number>(() => load("lb-epub-fontpct", 110));
   const [lineHeight, setLineHeight] = useState<number>(() => load("lb-epub-lh", 1.7));
   const [serif, setSerif] = useState<boolean>(() => load("lb-epub-serif", true));
+  const [hlColor, setHlColor] = useState<string>(() => load("lb-epub-hlcolor", HL_COLORS[0]));
+  const hlColorRef = useRef(hlColor);
+  hlColorRef.current = hlColor;
 
   const { reportProgress } = useReadingSession(doc.id);
 
@@ -172,10 +178,46 @@ export default function EpubReader({ doc, initialCfi }: Props) {
             kind: "highlight",
             epub_cfi_range: cfiRange,
             selected_text: text,
-            color: "#fbbf24",
+            color: hlColorRef.current,
           });
           setHighlights((prev) => [...prev, ann]);
           drawHighlight(rendition, ann);
+        });
+
+        // Tap left/right thirds to turn pages, or swipe (mobile). Registered
+        // per rendered section so it works inside the epub.js iframe.
+        rendition.hooks.content.register((contents: any) => {
+          const cdoc = contents.document;
+          let sx = 0,
+            sy = 0,
+            st = 0;
+          cdoc.addEventListener(
+            "touchstart",
+            (e: TouchEvent) => {
+              const t = e.changedTouches[0];
+              sx = t.clientX;
+              sy = t.clientY;
+              st = Date.now();
+            },
+            { passive: true },
+          );
+          cdoc.addEventListener(
+            "touchend",
+            (e: TouchEvent) => {
+              const t = e.changedTouches[0];
+              const dx = t.clientX - sx;
+              const dy = t.clientY - sy;
+              if (contents.window.getSelection()?.toString()) return;
+              if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy)) {
+                dx < 0 ? rendition.next() : rendition.prev();
+              } else if (Date.now() - st < 250 && Math.abs(dx) < 10 && Math.abs(dy) < 10) {
+                const w = contents.window.innerWidth;
+                if (t.clientX < w * 0.3) rendition.prev();
+                else if (t.clientX > w * 0.7) rendition.next();
+              }
+            },
+            { passive: true },
+          );
         });
 
         listAnnotations(doc.id, "highlight").then((anns) => {
@@ -203,8 +245,9 @@ export default function EpubReader({ doc, initialCfi }: Props) {
     save("lb-epub-fontpct", fontPct);
     save("lb-epub-lh", lineHeight);
     save("lb-epub-serif", serif);
+    save("lb-epub-hlcolor", hlColor);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [theme, fontPct, lineHeight, serif]);
+  }, [theme, fontPct, lineHeight, serif, hlColor]);
 
   const prev = () => renditionRef.current?.prev();
   const next = () => renditionRef.current?.next();
@@ -230,6 +273,17 @@ export default function EpubReader({ doc, initialCfi }: Props) {
         <span className="text-slate-400 hidden sm:inline">
           {ready ? "Select text to highlight" : "Preparing..."}
         </span>
+        <div className="flex items-center gap-1.5 ml-2">
+          {HL_COLORS.map((c) => (
+            <button
+              key={c}
+              onClick={() => setHlColor(c)}
+              className={`w-5 h-5 rounded-full border-2 ${hlColor === c ? "border-white" : "border-transparent"}`}
+              style={{ background: c }}
+              title="Highlight color"
+            />
+          ))}
+        </div>
         <div className="ml-auto flex items-center gap-2">
           <button
             onClick={() => {
@@ -362,7 +416,21 @@ export default function EpubReader({ doc, initialCfi }: Props) {
                     />
                     {h.selected_text || "(highlight)"}
                   </button>
-                  {h.note && <p className="text-xs text-slate-500 mt-1">{h.note}</p>}
+                  <textarea
+                    defaultValue={h.note || ""}
+                    placeholder="Add a note..."
+                    onBlur={async (e) => {
+                      const note = e.target.value.trim();
+                      if (note !== (h.note || "")) {
+                        await updateAnnotation(h.id, { note });
+                        setHighlights((prev) =>
+                          prev.map((x) => (x.id === h.id ? { ...x, note } : x)),
+                        );
+                      }
+                    }}
+                    rows={1}
+                    className="mt-1.5 w-full bg-slate-950/40 border border-slate-800 rounded px-2 py-1 text-xs text-slate-300 focus:outline-none focus:border-indigo-500 resize-none"
+                  />
                   <button
                     onClick={() => removeHighlight(h)}
                     className="mt-1 text-xs text-rose-400 hover:text-rose-300 flex items-center gap-1"
