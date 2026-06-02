@@ -107,14 +107,23 @@ def ingest_file(
     db.add(doc)
     db.flush()  # assigns doc.id
 
-    # author links
-    for i, name in enumerate(meta.get("authors", []) or []):
+    # author links (dedupe: some PDFs list the same author twice)
+    seen_author_ids: set[int] = set()
+    position = 0
+    for name in meta.get("authors", []) or []:
+        name = (name or "").strip()
+        if not name:
+            continue
         author = db.query(Author).filter(Author.name == name).first()
         if not author:
             author = Author(name=name)
             db.add(author)
             db.flush()
-        db.add(DocumentAuthor(document_id=doc.id, author_id=author.id, position=i))
+        if author.id in seen_author_ids:
+            continue
+        seen_author_ids.add(author.id)
+        db.add(DocumentAuthor(document_id=doc.id, author_id=author.id, position=position))
+        position += 1
 
     # move/copy file into place
     dest_name = f"{doc.id}-{_slugify(doc.title)}.{fmt}"
@@ -154,9 +163,14 @@ def ingest_file(
 
 
 def _auto_fetch_metadata(db: Session, doc: Document) -> None:
-    """Fill in paper metadata from arXiv/Crossref. Best-effort, never fatal."""
+    """Fill in paper metadata from arXiv/Crossref. Best-effort, never fatal.
+
+    Runs inside a SAVEPOINT so a failure here cannot poison the outer
+    transaction that just created `doc`.
+    """
     if not settings.metadata_fetch_enabled:
         return
+    sp = db.begin_nested()
     try:
         from . import metadata_fetch
 
@@ -166,6 +180,7 @@ def _auto_fetch_metadata(db: Session, doc: Document) -> None:
         if not candidates and doc.doi:
             candidates = metadata_fetch.fetch_crossref(doi=doc.doi)
         if not candidates:
+            sp.commit()
             return
         c = candidates[0]
         if c.title:
@@ -182,8 +197,10 @@ def _auto_fetch_metadata(db: Session, doc: Document) -> None:
         if c.authors:
             doc.author_links.clear()
             db.flush()
-            for i, name in enumerate(c.authors):
-                name = name.strip()
+            seen_author_ids: set[int] = set()
+            position = 0
+            for name in c.authors:
+                name = (name or "").strip()
                 if not name:
                     continue
                 author = db.query(Author).filter(Author.name == name).first()
@@ -191,9 +208,15 @@ def _auto_fetch_metadata(db: Session, doc: Document) -> None:
                     author = Author(name=name)
                     db.add(author)
                     db.flush()
-                db.add(DocumentAuthor(document_id=doc.id, author_id=author.id, position=i))
+                if author.id in seen_author_ids:
+                    continue
+                seen_author_ids.add(author.id)
+                db.add(DocumentAuthor(document_id=doc.id, author_id=author.id, position=position))
+                position += 1
+        sp.commit()
         logger.info("auto-fetched metadata for document %s from %s", doc.id, c.source)
     except Exception as exc:  # pragma: no cover - best effort
+        sp.rollback()
         logger.warning("auto metadata fetch failed for %s: %s", doc.id, exc)
 
 
