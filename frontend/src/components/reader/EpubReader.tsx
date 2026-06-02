@@ -75,6 +75,8 @@ export default function EpubReader({ doc, initialCfi }: Props) {
   const [hlColor, setHlColor] = useState<string>(() => load("lb-epub-hlcolor", HL_COLORS[0]));
   const hlColorRef = useRef(hlColor);
   hlColorRef.current = hlColor;
+  const fontPctRef = useRef(fontPct);
+  fontPctRef.current = fontPct;
 
   const { reportProgress } = useReadingSession(doc.id);
 
@@ -184,34 +186,72 @@ export default function EpubReader({ doc, initialCfi }: Props) {
           drawHighlight(rendition, ann);
         });
 
-        // Tap left/right thirds to turn pages, or swipe (mobile). Registered
-        // per rendered section so it works inside the epub.js iframe.
+        // Touch gestures inside the epub.js iframe:
+        //  - pinch with two fingers -> change font size (text reflows, like
+        //    Google Books)
+        //  - swipe / tap left-right thirds -> turn the page
         rendition.hooks.content.register((contents: any) => {
           const cdoc = contents.document;
+          const cwin = contents.window;
           let sx = 0,
             sy = 0,
             st = 0;
+          let pinching = false,
+            pinchStartDist = 0,
+            pinchStartPct = 110,
+            lastRatio = 1;
+          const dist = (t: TouchList) =>
+            Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+
           cdoc.addEventListener(
             "touchstart",
             (e: TouchEvent) => {
-              const t = e.changedTouches[0];
-              sx = t.clientX;
-              sy = t.clientY;
-              st = Date.now();
+              if (e.touches.length === 2) {
+                pinching = true;
+                pinchStartDist = dist(e.touches);
+                pinchStartPct = fontPctRef.current;
+                lastRatio = 1;
+              } else {
+                const t = e.changedTouches[0];
+                sx = t.clientX;
+                sy = t.clientY;
+                st = Date.now();
+              }
             },
             { passive: true },
           );
           cdoc.addEventListener(
+            "touchmove",
+            (e: TouchEvent) => {
+              if (pinching && e.touches.length === 2) {
+                e.preventDefault();
+                lastRatio = dist(e.touches) / pinchStartDist;
+              }
+            },
+            { passive: false },
+          );
+          cdoc.addEventListener(
             "touchend",
             (e: TouchEvent) => {
+              if (pinching) {
+                if (e.touches.length < 2) {
+                  pinching = false;
+                  const next = Math.round(
+                    Math.min(220, Math.max(70, pinchStartPct * lastRatio)) / 5,
+                  ) * 5;
+                  if (next !== fontPctRef.current) setFontPct(next);
+                  lastRatio = 1;
+                }
+                return;
+              }
               const t = e.changedTouches[0];
               const dx = t.clientX - sx;
               const dy = t.clientY - sy;
-              if (contents.window.getSelection()?.toString()) return;
+              if (cwin.getSelection()?.toString()) return;
               if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy)) {
                 dx < 0 ? rendition.next() : rendition.prev();
               } else if (Date.now() - st < 250 && Math.abs(dx) < 10 && Math.abs(dy) < 10) {
-                const w = contents.window.innerWidth;
+                const w = cwin.innerWidth;
                 if (t.clientX < w * 0.3) rendition.prev();
                 else if (t.clientX > w * 0.7) rendition.next();
               }
@@ -379,7 +419,7 @@ export default function EpubReader({ doc, initialCfi }: Props) {
               label="Font size"
               value={`${fontPct}%`}
               onDec={() => setFontPct((v) => Math.max(70, v - 10))}
-              onInc={() => setFontPct((v) => Math.min(200, v + 10))}
+              onInc={() => setFontPct((v) => Math.min(220, v + 10))}
             />
             <Stepper
               label="Line spacing"
