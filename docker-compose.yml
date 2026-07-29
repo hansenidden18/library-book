@@ -42,7 +42,12 @@ services:
       TS_STATE_DIR: "/var/lib/tailscale"
       TS_USERSPACE: "true"
       TS_SERVE_CONFIG: "/config/serve.json"
-      # Optional. Without it, the login URL is printed to the container log.
+      # Only authenticate when there is no saved node identity, so a restart
+      # never re-runs `tailscale up` against an already-registered node.
+      TS_AUTH_ONCE: "true"
+      # Strongly recommended. The image gives interactive login only 60s
+      # before it kills tailscaled and restarts with a fresh URL, which
+      # loops forever if nobody clicks in time. An auth key skips that.
       TS_AUTHKEY: "${TS_AUTHKEY:-}"
     volumes:
       # Node identity lives beside the data, so restoring on a new machine

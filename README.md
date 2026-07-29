@@ -57,9 +57,17 @@ The `tailscale` profile starts a sidecar that joins your tailnet as its own
 node and proxies `:443` to the app:
 
 ```bash
+# Generate a one-off key at https://login.tailscale.com/admin/settings/keys
+# and put it in .env as TS_AUTHKEY, then:
 docker compose --profile tailscale up -d
-docker compose logs tailscale      # prints a login URL on first run
 ```
+
+Use an auth key rather than interactive login. The image allows `tailscale
+up` only 60 seconds to complete, then kills tailscaled and restarts with a
+brand-new login URL - so an unattended first boot loops forever, minting
+URLs that expire before you can click them. The key is consumed once; node
+identity then lives in `TS_STATE_PATH` and `TS_AUTH_ONCE` keeps restarts
+from re-running login. You can blank `TS_AUTHKEY` afterwards.
 
 Set `TS_HOSTNAME` in `.env` (default `library`) and the library answers on
 `https://library.<your-tailnet>.ts.net` - HTTPS via Tailscale's certs, so
