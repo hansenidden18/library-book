@@ -24,3 +24,28 @@ services:
       # Optional: a Google Books API key raises rate limits.
       GOOGLE_BOOKS_API_KEY: "${GOOGLE_BOOKS_API_KEY:-}"
       LOG_LEVEL: "info"
+
+  # Optional: give the library its own Tailscale node, so it answers on
+  # https://<TS_HOSTNAME>.<your-tailnet>.ts.net instead of sharing a host
+  # and origin with whatever else that machine serves. Its own origin means
+  # the PWA installs cleanly at "/" with its own storage and service worker.
+  # Start it with:  docker compose --profile tailscale up -d
+  tailscale:
+    profiles: ["tailscale"]
+    image: tailscale/tailscale:latest
+    container_name: library-book-ts
+    restart: unless-stopped
+    # Share the app's network namespace so serve can reach 127.0.0.1:8000.
+    network_mode: "service:library-book"
+    environment:
+      TS_HOSTNAME: "${TS_HOSTNAME:-library}"
+      TS_STATE_DIR: "/var/lib/tailscale"
+      TS_USERSPACE: "true"
+      TS_SERVE_CONFIG: "/config/serve.json"
+      # Optional. Without it, the login URL is printed to the container log.
+      TS_AUTHKEY: "${TS_AUTHKEY:-}"
+    volumes:
+      # Node identity lives beside the data, so restoring on a new machine
+      # brings the hostname back with it.
+      - ${TS_STATE_PATH:-./tailscale/state}:/var/lib/tailscale
+      - ./tailscale/serve.json:/config/serve.json:ro

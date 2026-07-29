@@ -22,3 +22,6 @@ backend/static/
 
 # ts build info
 frontend/tsconfig.tsbuildinfo
+
+# tailscale node state (machine-local)
+tailscale/state/

@@ -44,6 +44,30 @@ data/
     .failed/           # files that couldn't be imported land here
 ```
 
+### Tailscale (optional): its own hostname, so it installs as a PWA
+
+The app is built to live at the root of an origin - absolute asset paths,
+`start_url: "/"`, service worker at root scope. Hanging it off a sub-path of
+a host you already use (`https://host/library`) would mean rebuilding the
+frontend with a `base`, and the install would still share cookies,
+localStorage, IndexedDB, and service-worker registration with whatever else
+lives on that origin. A separate hostname avoids all of it.
+
+The `tailscale` profile starts a sidecar that joins your tailnet as its own
+node and proxies `:443` to the app:
+
+```bash
+docker compose --profile tailscale up -d
+docker compose logs tailscale      # prints a login URL on first run
+```
+
+Set `TS_HOSTNAME` in `.env` (default `library`) and the library answers on
+`https://library.<your-tailnet>.ts.net` - HTTPS via Tailscale's certs, so
+the browser offers "install app" with no warnings. Point `TS_STATE_PATH` at
+the same disk as `DATA_PATH` and a restore brings the node identity back
+too, keeping the URL stable across machines. Tailnet-only by default; the
+serve config does not enable Funnel.
+
 ### Backup and moving to another machine
 
 One directory is the entire library, so a backup is one tarball and a
