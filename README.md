@@ -81,13 +81,19 @@ scripts/backup.sh /mnt/usb/bak    # or anywhere else
 The script snapshots SQLite through its online-backup API, so it is safe to
 run while the server is up (a plain `cp` of a WAL database can tear).
 
+The tarball holds `db/`, `library/`, and `covers/` - the whole library.
+`import/` and `tmp/` are scratch space and are recreated on boot.
+
 To bring the library up on a new machine:
 
 ```bash
 git clone <this-repo> library-book && cd library-book
 cp .env.example .env               # point DATA_PATH at the new disk
+set -a && . ./.env && set +a       # load DATA_PATH into this shell
+
 mkdir -p "$DATA_PATH"
-tar -xzf library-book-<stamp>.tar.gz -C "$DATA_PATH"
+tar -xzf /path/to/library-book-<stamp>.tar.gz -C "$DATA_PATH"
+
 docker compose up --build -d
 ```
 
@@ -95,6 +101,18 @@ Reading progress, annotations, shelves, tags, and statistics all live in
 `db/library.db`, so nothing is lost - the app comes back exactly where it
 was. File paths in the database are relative to `DATA_DIR`, so the host
 directory can change freely.
+
+**If you use the Tailscale profile**, mind the hostname. It is what an
+installed PWA is bound to, and a PWA cannot follow a URL change - a new
+origin is a new app, with new storage. Either:
+
+- copy `TS_STATE_PATH` across as well (it is *not* in the tarball - it holds
+  the node's private keys, so treat it like a secret), and the machine comes
+  back as the same node; or
+- delete the dead node in the [admin console](https://login.tailscale.com/admin/machines)
+  *before* starting the new one, and re-authenticate. Skip this and the name
+  `library` is still taken, so the new node becomes `library-1` and your
+  installed app points at nothing.
 
 ### Configuration (environment variables)
 
