@@ -25,12 +25,14 @@ Inspired by [BookLore](https://github.com/booklore-app/booklore), but deliberate
 ```bash
 git clone <this-repo> library-book
 cd library-book
+cp .env.example .env      # set DATA_PATH to the disk you back up
 docker compose up --build -d
 ```
 
-Open <http://localhost:8000>. Upload a PDF or EPUB, or drop files into `./data/import/`.
+Open <http://localhost:8000>. Upload a PDF or EPUB, or drop files into `$DATA_PATH/import/`.
 
-Everything persists under `./data`:
+Everything persists under `DATA_PATH` (host) / `/data` (container), which
+defaults to `./data`:
 
 ```
 data/
@@ -41,6 +43,34 @@ data/
   import/              # WATCH FOLDER - drop files here (papers/ subfolder = papers)
     .failed/           # files that couldn't be imported land here
 ```
+
+### Backup and moving to another machine
+
+One directory is the entire library, so a backup is one tarball and a
+restore is one copy:
+
+```bash
+scripts/backup.sh                 # -> $DATA_PATH/../backups/library-book-<stamp>.tar.gz
+scripts/backup.sh /mnt/usb/bak    # or anywhere else
+```
+
+The script snapshots SQLite through its online-backup API, so it is safe to
+run while the server is up (a plain `cp` of a WAL database can tear).
+
+To bring the library up on a new machine:
+
+```bash
+git clone <this-repo> library-book && cd library-book
+cp .env.example .env               # point DATA_PATH at the new disk
+mkdir -p "$DATA_PATH"
+tar -xzf library-book-<stamp>.tar.gz -C "$DATA_PATH"
+docker compose up --build -d
+```
+
+Reading progress, annotations, shelves, tags, and statistics all live in
+`db/library.db`, so nothing is lost - the app comes back exactly where it
+was. File paths in the database are relative to `DATA_DIR`, so the host
+directory can change freely.
 
 ### Configuration (environment variables)
 

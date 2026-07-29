@@ -9,17 +9,18 @@ services:
       - "8000:8000"
     volumes:
       # Single data volume: SQLite db, library files, covers, and the
-      # import/ watch folder all live here. Drop files into ./data/import
-      # (or ./data/import/papers) to auto-import them.
-      - ./data:/data
+      # import/ watch folder all live here. Set DATA_PATH in .env to keep
+      # it on a dedicated disk; drop files into $DATA_PATH/import
+      # (or $DATA_PATH/import/papers) to auto-import them.
+      - ${DATA_PATH:-./data}:/data
     environment:
-      TZ: "UTC"
-      USER_ID: "1000"
-      GROUP_ID: "1000"
+      TZ: "${TZ:-UTC}"
+      USER_ID: "${USER_ID:-1000}"
+      GROUP_ID: "${GROUP_ID:-1000}"
       WATCH_ENABLED: "true"
       METADATA_FETCH_ENABLED: "true"
       # Recommended: set your email for the Crossref "polite pool".
-      CROSSREF_MAILTO: ""
+      CROSSREF_MAILTO: "${CROSSREF_MAILTO:-}"
       # Optional: a Google Books API key raises rate limits.
-      GOOGLE_BOOKS_API_KEY: ""
+      GOOGLE_BOOKS_API_KEY: "${GOOGLE_BOOKS_API_KEY:-}"
       LOG_LEVEL: "info"
